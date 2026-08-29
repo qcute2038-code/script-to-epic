@@ -1,7 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { analyzeScript, promptsForBatch, renderImage } from "@/lib/manga.functions";
+import {
+  analyzeScript,
+  promptsForBatch,
+  renderImage,
+  renderBatch,
+} from "@/lib/manga.functions";
 import { fmt, type Segment } from "@/lib/script";
 import { buildVideo, webCodecsSupported } from "@/lib/video";
 
