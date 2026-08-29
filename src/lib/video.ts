@@ -284,10 +284,31 @@ export async function buildVideo(
   const started = Date.now();
   let lastNote = 0;
 
-  const flushGate = async () => {
-    while (encoder.encodeQueueSize > 8) {
-      await new Promise((r) => setTimeout(r, 4));
+  // Back-pressure: keep the hardware encoder fed but never let the queue grow
+  // unbounded. `ondequeue` wakes us the instant a frame leaves the queue, which
+  // is far faster than polling on a 4ms timer over hundreds of thousands of
+  // frames.
+  const MAX_QUEUE = 16;
+  let wake: (() => void) | null = null;
+  encoder.ondequeue = () => {
+    if (wake && encoder.encodeQueueSize <= MAX_QUEUE / 2) {
+      const w = wake;
+      wake = null;
+      w();
     }
+  };
+  const flushGate = async () => {
+    if (encoder.encodeQueueSize <= MAX_QUEUE) return;
+    await new Promise<void>((resolve) => {
+      wake = resolve;
+      // safety net in case the encoder never fires ondequeue
+      setTimeout(() => {
+        if (wake === resolve) {
+          wake = null;
+          resolve();
+        }
+      }, 250);
+    });
   };
 
   // pick a distinct camera move per shot
