@@ -271,8 +271,8 @@ function Index() {
       const worker = async () => {
         for (;;) {
           if (cancelRef.current) return;
-          const job = queue.shift();
-          if (!job) {
+          const group = queue.splice(0, IMAGE_BATCH);
+          if (group.length === 0) {
             if (promptingDone) return;
             await new Promise((r) => setTimeout(r, 100));
             continue;
@@ -280,19 +280,36 @@ function Index() {
           const wait = cooldownUntil - Date.now();
           if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 
-          const { seg: s, prompt } = job;
-          record(s.index, { status: "drawing" });
+          group.forEach((g) => record(g.seg.index, { status: "drawing" }));
           try {
-            const { url } = await draw({
-              data: { prompt, seed: 1000 + s.index, slot: keyTick++, bible: b },
+            const { results } = await drawBatch({
+              data: {
+                bible: b,
+                jobs: group.map((g) => ({
+                  index: g.seg.index,
+                  prompt: g.prompt,
+                  seed: 1000 + g.seg.index,
+                  slot: keyTick++,
+                })),
+              },
             });
-            record(s.index, { url, status: "done", error: undefined });
+            for (const r of results) {
+              if (r.url) {
+                record(r.index, { url: r.url, status: "done", error: undefined });
+              } else {
+                const msg = r.error ?? "render failed";
+                if (/429|rate|quota/i.test(msg)) cooldownUntil = Date.now() + 5000;
+                record(r.index, { status: "error", error: msg });
+              }
+            }
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             if (/429|rate|quota/i.test(msg)) cooldownUntil = Date.now() + 5000;
-            record(s.index, { status: "error", prompt, error: msg });
+            group.forEach((g) =>
+              record(g.seg.index, { status: "error", prompt: g.prompt, error: msg }),
+            );
           }
-          drawn++;
+          drawn += group.length;
           tick();
           persist();
         }
