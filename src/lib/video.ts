@@ -108,12 +108,39 @@ async function loadBitmap(url: string, attempts = 3): Promise<ImageBitmap> {
   throw new Error(`Could not load panel image: ${last}`);
 }
 
+/**
+ * Applies the colour grade ONCE per panel instead of once per frame.
+ *
+ * `ctx.filter` and the `overlay` composite pass are the two most expensive
+ * canvas operations there are; running them on all ~216,000 frames of a 2-hour
+ * render is what made encoding take hours. Baking them into the source bitmap
+ * leaves the per-frame work at a single `drawImage`, with identical output.
+ */
+async function gradeBitmap(img: ImageBitmap, grade: Grade): Promise<ImageBitmap> {
+  try {
+    const c = new OffscreenCanvas(img.width, img.height);
+    const g = c.getContext("2d", { alpha: false });
+    if (!g) return img;
+    g.filter = grade.filter;
+    g.drawImage(img, 0, 0);
+    g.filter = "none";
+    g.globalAlpha = grade.tintAlpha;
+    g.globalCompositeOperation = "overlay";
+    g.fillStyle = grade.tint;
+    g.fillRect(0, 0, img.width, img.height);
+    const out = c.transferToImageBitmap();
+    img.close();
+    return out;
+  } catch {
+    return img;
+  }
+}
+
 function drawKenBurns(
   ctx: CanvasRenderingContext2D,
   img: ImageBitmap,
   move: Move,
   p: number,
-  grade: Grade,
   alpha: number,
 ) {
   const t = Math.min(1, Math.max(0, p));
@@ -136,16 +163,13 @@ function drawKenBurns(
   const ox = (img.width - cw) / 2 + (cw - vw) * fx;
   const oy = (img.height - ch) / 2 + (ch - vh) * fy;
 
+  if (alpha >= 1) {
+    ctx.drawImage(img, ox, oy, vw, vh, 0, 0, W, H);
+    return;
+  }
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.filter = grade.filter;
   ctx.drawImage(img, ox, oy, vw, vh, 0, 0, W, H);
-  ctx.filter = "none";
-  // colour balance pass
-  ctx.globalAlpha = alpha * grade.tintAlpha;
-  ctx.globalCompositeOperation = "overlay";
-  ctx.fillStyle = grade.tint;
-  ctx.fillRect(0, 0, W, H);
   ctx.restore();
 }
 
