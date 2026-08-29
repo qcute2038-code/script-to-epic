@@ -54,3 +54,48 @@ export const renderImage = createServerFn({ method: "POST" })
     const url = await generateImage(data.prompt, data.seed, data.slot, data.bible);
     return { url };
   });
+
+/**
+ * Renders several panels in one round trip.
+ *
+ * A 2-hour script is ~1500 panels. Asking the browser to hold ~100 separate
+ * server-function requests open saturates its connection pool, so each request
+ * instead fans a small group out server-side. Failures are reported per item so
+ * one bad panel never fails the group.
+ */
+export const renderBatch = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        bible: z.string().optional(),
+        jobs: z
+          .array(
+            z.object({
+              index: z.number().int(),
+              prompt: z.string().min(5),
+              seed: z.number().int(),
+              slot: z.number().int().min(0).default(0),
+            }),
+          )
+          .min(1)
+          .max(8),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const results = await Promise.all(
+      data.jobs.map(async (j) => {
+        try {
+          const url = await generateImage(j.prompt, j.seed, j.slot, data.bible);
+          return { index: j.index, url, error: null as string | null };
+        } catch (e) {
+          return {
+            index: j.index,
+            url: null as string | null,
+            error: e instanceof Error ? e.message : String(e),
+          };
+        }
+      }),
+    );
+    return { results };
+  });
