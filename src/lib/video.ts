@@ -300,22 +300,25 @@ export async function buildVideo(
     moves.push(MOVES[mi]!);
   }
 
+  /** Loads a panel and bakes its colour grade in — once, not per frame. */
+  const loadGraded = async (i: number): Promise<ImageBitmap> =>
+    gradeBitmap(await loadBitmap(shots[i]!.url), gradeFor(shots[i]!, i));
+
   let current: ImageBitmap | null = null;
   let next: Promise<ImageBitmap> | null = null;
 
   try {
-    current = await loadBitmap(shots[0]!.url);
+    current = await loadGraded(0);
 
     for (let i = 0; i < shots.length; i++) {
       if (encoderError) throw encoderError;
 
       const dur = durations[i]!;
       const frames = Math.max(1, Math.round(dur * FPS));
-      const grade = gradeFor(shots[i]!, i);
       const move = moves[i]!;
 
       // prefetch the next panel while this one renders
-      next = i + 1 < shots.length ? loadBitmap(shots[i + 1]!.url) : null;
+      next = i + 1 < shots.length ? loadGraded(i + 1) : null;
       let incoming: ImageBitmap | null = null;
       let incomingReady = false;
       if (next) {
@@ -338,9 +341,7 @@ export async function buildVideo(
 
         ctx.save();
         ctx.scale(sx, sy);
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, W, H);
-        drawKenBurns(ctx, current!, move, p, grade, 1);
+        drawKenBurns(ctx, current!, move, p, 1);
 
         if (i < shots.length - 1 && t >= fadeStart) {
           if (!incomingReady) {
@@ -358,9 +359,8 @@ export async function buildVideo(
           if (incoming) {
             const a = Math.min(1, (t - fadeStart) / XF);
             const nMove = moves[i + 1]!;
-            const nGrade = gradeFor(shots[i + 1]!, i + 1);
             const nDur = durations[i + 1]! + XF;
-            drawKenBurns(ctx, incoming, nMove, (t - fadeStart) / nDur, nGrade, a);
+            drawKenBurns(ctx, incoming, nMove, (t - fadeStart) / nDur, a);
           }
         }
         ctx.restore();
@@ -374,7 +374,7 @@ export async function buildVideo(
         frame.close();
         frameIndex++;
 
-        if (Date.now() - lastNote > 400) {
+        if (Date.now() - lastNote > 500) {
           lastNote = Date.now();
           const pct = frameIndex / totalFrames;
           const elapsed = (Date.now() - started) / 1000;
@@ -394,7 +394,7 @@ export async function buildVideo(
       current = incoming ?? (next ? await next.catch(() => null) : null);
       if (!current && i + 1 < shots.length) {
         // this panel's image is unusable — skip to the following one
-        current = await loadBitmap(shots[i + 1]!.url).catch(() => null as unknown as ImageBitmap);
+        current = await loadGraded(i + 1).catch(() => null as unknown as ImageBitmap);
         if (!current) throw new Error(`Panel ${i + 2} image could not be loaded.`);
       }
     }
