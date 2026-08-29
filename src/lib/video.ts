@@ -207,6 +207,42 @@ export async function buildVideo(
 
   onProgress(1, "Starting encoder…");
 
+  // ---- pick a codec the browser can actually encode -------------------------
+  // H.264 first (universally playable); VP9 then AV1 as fallbacks so browsers
+  // built without proprietary codecs can still export a valid mp4.
+  const codecCandidates: { codec: string; mux: "avc" | "vp9" | "av1" }[] = [
+    { codec: "avc1.42003e", mux: "avc" },
+    { codec: "avc1.4d0034", mux: "avc" },
+    { codec: "avc1.640034", mux: "avc" },
+    { codec: "avc1.42001f", mux: "avc" },
+    { codec: "vp09.00.51.08", mux: "vp9" },
+    { codec: "vp09.00.10.08", mux: "vp9" },
+    { codec: "av01.0.08M.08", mux: "av1" },
+  ];
+
+  let chosen: { codec: string; mux: "avc" | "vp9" | "av1" } | null = null;
+  for (const cand of codecCandidates) {
+    try {
+      const support = await VideoEncoder.isConfigSupported({
+        codec: cand.codec,
+        width,
+        height,
+        bitrate,
+        framerate: FPS,
+      });
+      if (support.supported) {
+        chosen = cand;
+        break;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  if (!chosen)
+    throw new Error(
+      "This browser has no usable video encoder. Use the latest desktop Chrome, Edge or Opera.",
+    );
+
   // ---- muxer target: stream to disk when we have a file handle -------------
   let writable: FileSystemWritableFileStream | null = null;
   let muxer: Muxer<ArrayBufferTarget | StreamTarget>;
@@ -221,13 +257,13 @@ export async function buildVideo(
         },
         chunked: true,
       }),
-      video: { codec: "avc", width, height },
+      video: { codec: chosen.mux, width, height },
       fastStart: false,
     }) as Muxer<StreamTarget>;
   } else {
     muxer = new Muxer({
       target: new ArrayBufferTarget(),
-      video: { codec: "avc", width, height },
+      video: { codec: chosen.mux, width, height },
       fastStart: "in-memory",
     }) as Muxer<ArrayBufferTarget>;
   }
@@ -240,34 +276,14 @@ export async function buildVideo(
     },
   });
 
-  // Level 4.2 handles 1080p30; fall back to a lower profile if unsupported.
-  const codecCandidates = ["avc1.42003e", "avc1.4d0034", "avc1.640034", "avc1.42001f"];
-  let configured = false;
-  for (const codec of codecCandidates) {
-    try {
-      const support = await VideoEncoder.isConfigSupported({
-        codec,
-        width,
-        height,
-        bitrate,
-        framerate: FPS,
-      });
-      if (!support.supported) continue;
-      encoder.configure({
-        codec,
-        width,
-        height,
-        bitrate,
-        framerate: FPS,
-        latencyMode: "quality",
-      });
-      configured = true;
-      break;
-    } catch {
-      /* try next */
-    }
-  }
-  if (!configured) throw new Error("No supported H.264 encoder configuration in this browser.");
+  encoder.configure({
+    codec: chosen.codec,
+    width,
+    height,
+    bitrate,
+    framerate: FPS,
+    latencyMode: "quality",
+  });
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
