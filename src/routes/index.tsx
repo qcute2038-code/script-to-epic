@@ -46,10 +46,17 @@ const SAMPLE = `(0:00)Henan की कहानी असुरा का उद
 
 /** Scenes per chat call — small batches answer in seconds. */
 const BATCH = 6;
-/** Parallel chat calls (≈3 per Paralon key). */
-const PROMPT_CONCURRENCY = 12;
-/** Parallel image renders (≈4 per Pixazo key). Auto-throttles on rate limits. */
-const IMAGE_CONCURRENCY = 16;
+/** Parallel chat calls (≈4 per Paralon key). */
+const PROMPT_CONCURRENCY = 16;
+/**
+ * Parallel image request lanes. Each lane sends IMAGE_BATCH prompts in one
+ * round trip and the server renders them concurrently, so the real number of
+ * images in flight is IMAGE_CONCURRENCY * IMAGE_BATCH (measured: one Pixazo key
+ * sustains 24 concurrent Flux Schnell renders with no rate limiting, so four
+ * keys comfortably carry ~96). Auto-throttles if the provider pushes back.
+ */
+const IMAGE_CONCURRENCY = 24;
+const IMAGE_BATCH = 4;
 /** Panels shown in the preview grid before "show all" (a 2h script has 1000+). */
 const PREVIEW_LIMIT = 60;
 
