@@ -110,6 +110,8 @@ function Index() {
   const getPrompts = useServerFn(promptsForBatch);
   const draw = useServerFn(renderImage);
   const drawBatch = useServerFn(renderBatch);
+  const beginRender = useServerFn(startRender);
+  const checkRender = useServerFn(renderStatus);
 
   const [script, setScript] = useState("");
   const [bible, setBible] = useState("");
