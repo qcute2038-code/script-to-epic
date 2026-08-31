@@ -8,7 +8,7 @@ import {
   renderBatch,
 } from "@/lib/manga.functions";
 import { fmt, type Segment } from "@/lib/script";
-import { buildVideo, webCodecsSupported } from "@/lib/video";
+import { startRender, renderStatus } from "@/lib/render.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
