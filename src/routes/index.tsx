@@ -8,7 +8,7 @@ import {
   renderBatch,
 } from "@/lib/manga.functions";
 import { fmt, type Segment } from "@/lib/script";
-import { startRender, renderStatus } from "@/lib/render.functions";
+import { buildVideo, webCodecsSupported } from "@/lib/video";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -110,8 +110,6 @@ function Index() {
   const getPrompts = useServerFn(promptsForBatch);
   const draw = useServerFn(renderImage);
   const drawBatch = useServerFn(renderBatch);
-  const beginRender = useServerFn(startRender);
-  const checkRender = useServerFn(renderStatus);
 
   const [script, setScript] = useState("");
   const [bible, setBible] = useState("");
