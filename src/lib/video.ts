@@ -244,7 +244,17 @@ export async function buildVideo(
     );
 
   // ---- muxer target: stream to disk when we have a file handle -------------
+  //
+  // A FileSystemWritableFileStream accepts exactly one write at a time. The
+  // muxer emits data synchronously and often faster than the disk can take it,
+  // so fire-and-forget writes overlap, the stream errors, and the render dies
+  // at the end with "Cannot close a ERRORED writable stream" — the failure only
+  // shows up on very long videos because that's when writes actually queue up.
+  // Every chunk is therefore appended to a single promise chain and the first
+  // failure is remembered so it can be reported properly.
   let writable: FileSystemWritableFileStream | null = null;
+  let writeChain: Promise<void> = Promise.resolve();
+  let writeError: Error | null = null;
   let muxer: Muxer<ArrayBufferTarget | StreamTarget>;
 
   if (opts.fileHandle) {
@@ -253,7 +263,16 @@ export async function buildVideo(
     muxer = new Muxer({
       target: new StreamTarget({
         onData: (data, position) => {
-          void w.write({ type: "write", data: data.slice() as unknown as BufferSource, position });
+          // copy: the muxer reuses its buffer as soon as onData returns
+          const buf = data.slice();
+          writeChain = writeChain.then(async () => {
+            if (writeError) return;
+            try {
+              await w.write({ type: "write", data: buf as unknown as BufferSource, position });
+            } catch (e) {
+              writeError = e instanceof Error ? e : new Error(String(e));
+            }
+          });
         },
         chunked: true,
       }),
@@ -423,6 +442,12 @@ export async function buildVideo(
           );
           // yield to the UI thread
           await new Promise((r) => setTimeout(r, 0));
+          if (writable) {
+            // drain pending disk writes so the queue can never run away on a
+            // multi-hour render, and surface a disk failure where it happened
+            await writeChain;
+            if (writeError) throw writeError;
+          }
         }
         if (encoderError) throw encoderError;
       }
@@ -442,7 +467,11 @@ export async function buildVideo(
     muxer.finalize();
 
     if (writable) {
+      // every queued chunk must land before the stream is closed
+      await writeChain;
+      if (writeError) throw writeError;
       await writable.close();
+      writable = null;
       onProgress(100, "Video saved");
       return { kind: "file", fileName: opts.fileHandle!.name };
     }
@@ -459,7 +488,11 @@ export async function buildVideo(
     } catch {
       /* already closed */
     }
-    if (writable) await writable.close().catch(() => {});
+    if (writable) {
+      // an errored stream cannot be closed — abort releases the file lock
+      await writeChain.catch(() => {});
+      await writable.abort().catch(() => {});
+    }
     throw e instanceof Error ? e : new Error(String(e));
   } finally {
     current?.close();
