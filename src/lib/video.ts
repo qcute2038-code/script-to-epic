@@ -442,6 +442,12 @@ export async function buildVideo(
           );
           // yield to the UI thread
           await new Promise((r) => setTimeout(r, 0));
+          if (writable) {
+            // drain pending disk writes so the queue can never run away on a
+            // multi-hour render, and surface a disk failure where it happened
+            await writeChain;
+            if (writeError) throw writeError;
+          }
         }
         if (encoderError) throw encoderError;
       }
@@ -461,7 +467,11 @@ export async function buildVideo(
     muxer.finalize();
 
     if (writable) {
+      // every queued chunk must land before the stream is closed
+      await writeChain;
+      if (writeError) throw writeError;
       await writable.close();
+      writable = null;
       onProgress(100, "Video saved");
       return { kind: "file", fileName: opts.fileHandle!.name };
     }
@@ -478,7 +488,11 @@ export async function buildVideo(
     } catch {
       /* already closed */
     }
-    if (writable) await writable.close().catch(() => {});
+    if (writable) {
+      // an errored stream cannot be closed — abort releases the file lock
+      await writeChain.catch(() => {});
+      await writable.abort().catch(() => {});
+    }
     throw e instanceof Error ? e : new Error(String(e));
   } finally {
     current?.close();
