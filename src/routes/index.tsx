@@ -8,7 +8,7 @@ import {
   renderBatch,
 } from "@/lib/manga.functions";
 import { fmt, type Segment } from "@/lib/script";
-import { buildVideo, webCodecsSupported } from "@/lib/video";
+import { startRender, renderStatus } from "@/lib/render.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -110,6 +110,8 @@ function Index() {
   const getPrompts = useServerFn(promptsForBatch);
   const draw = useServerFn(renderImage);
   const drawBatch = useServerFn(renderBatch);
+  const beginRender = useServerFn(startRender);
+  const checkRender = useServerFn(renderStatus);
 
   const [script, setScript] = useState("");
   const [bible, setBible] = useState("");
@@ -394,60 +396,31 @@ function Index() {
       setError("No finished panels to build a video from.");
       return;
     }
-    if (!webCodecsSupported()) {
-      setError(
-        "Your browser has no hardware video encoder. Open this page in the latest desktop Chrome, Edge or Opera.",
-      );
-      return;
-    }
-
-    const seconds = ready.reduce((a, s) => a + Math.max(0.8, s.end - s.start), 0);
-    const long = seconds > 600; // 10 min+ must stream to disk, not to RAM
-
-    // A 2-hour mp4 is multiple gigabytes: stream it straight into a file the
-    // user picks so nothing has to be held in memory.
-    let handle: FileSystemFileHandle | undefined;
-    const picker = (
-      window as unknown as {
-        showSaveFilePicker?: (o: unknown) => Promise<FileSystemFileHandle>;
-      }
-    ).showSaveFilePicker;
-
-    if (picker) {
-      try {
-        handle = await picker({
-          suggestedName: "manga-video.mp4",
-          types: [{ description: "MP4 video", accept: { "video/mp4": [".mp4"] } }],
-        });
-      } catch {
-        if (long) {
-          setError("A video this long must be saved to a file. Pick a save location and try again.");
-          return;
-        }
-      }
-    } else if (long) {
-      setError(
-        "This browser cannot stream a multi-hour video to disk. Use desktop Chrome or Edge so the file can be written directly.",
-      );
-      return;
-    }
 
     setPhase("video");
     setVideoPct(0);
+    setNote("Sending panels to the render server…");
+
     try {
-      const res = await buildVideo(
-        ready,
-        (p, n) => {
-          setVideoPct(p);
-          setNote(n);
-        },
-        { fileHandle: handle },
-      );
-      if (res.kind === "file") {
-        setSavedTo(res.fileName);
-        setNote(`Saved ${res.fileName}`);
-      } else {
-        setVideoUrl(URL.createObjectURL(res.blob));
+      const { id } = await beginRender({ data: { shots: ready, width: 1920, crf: 20 } });
+
+      // Poll the worker until the MP4 is finished. Everything — download,
+      // Ken Burns, grading, cross-fades, encoding — happens on the server.
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const s = await checkRender({ data: { id } });
+        setVideoPct(Math.max(1, s.progress));
+        setNote(s.note || "Rendering on the server…");
+        if (s.status === "error") throw new Error(s.error || "Render failed on the server.");
+        if (s.status === "done" && s.downloadUrl) {
+          setVideoUrl(s.downloadUrl);
+          setNote(
+            s.bytes
+              ? `Video ready · ${(s.bytes / 1_048_576).toFixed(0)} MB`
+              : "Video ready",
+          );
+          break;
+        }
       }
       setPhase("done");
     } catch (e) {
