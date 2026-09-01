@@ -606,13 +606,22 @@ function Index() {
               </button>
             )}
             {doneCount > 0 && !busy && (
-              <button
-                onClick={makeVideo}
-                className="border-4 border-foreground bg-accent px-6 py-3 font-display text-lg font-black uppercase text-accent-foreground"
-              >
-                Build video
-              </button>
+              <>
+                <button
+                  onClick={makeVideoOnColab}
+                  className="border-4 border-foreground bg-accent px-6 py-3 font-display text-lg font-black uppercase text-accent-foreground"
+                >
+                  Encode on Colab GPU
+                </button>
+                <button
+                  onClick={makeVideo}
+                  className="border-4 border-foreground bg-secondary px-6 py-3 font-display text-lg font-black uppercase text-secondary-foreground"
+                >
+                  Build in browser
+                </button>
+              </>
             )}
+
             {busy && (
               <button
                 onClick={() => {
