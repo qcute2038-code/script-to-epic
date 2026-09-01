@@ -198,8 +198,11 @@ def render(jid, panels):
                           f"offset={max(0.05, off):.3f}[{lab}]")
                 prev = lab
 
+            span = sum(max(0.8, durs[i]) for i in idxs)
             run(["ffmpeg", "-y", *args, "-filter_complex", ";".join(fc),
-                 "-map", f"[{prev}]", "-r", str(FPS), *VCODEC, "-pix_fmt", "yuv420p", gpath])
+                 "-map", f"[{prev}]", "-t", f"{span:.3f}",
+                 "-r", str(FPS), *VCODEC, "-pix_fmt", "yuv420p", gpath])
+
         groups.append(gpath)
         gi += 1
         set_job(jid, pct=78 + round(gi / max(1, math.ceil(n / GROUP)) * 18),
