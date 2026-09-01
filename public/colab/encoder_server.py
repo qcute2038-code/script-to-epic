@@ -185,15 +185,19 @@ def render(jid, panels):
         if len(idxs) == 1:
             shutil.copy(os.path.join(d, f"c{idxs[0]:06d}.mp4"), gpath)
         else:
-            args, fc, prev, off = [], [], "0:v", 0.0
-            for k, i in enumerate(idxs):
+            args, fc, prev = [], [], "0:v"
+            for i in idxs:
                 args += ["-i", os.path.join(d, f"c{i:06d}.mp4")]
+            # clip k starts at the sum of the *visible* durations before it,
+            # and its cross-fade with the previous clip begins exactly there
+            off = 0.0
             for k in range(1, len(idxs)):
-                off += max(0.8, durs[idxs[k - 1]]) - (XF if k > 1 else 0) + (0 if k > 1 else 0)
+                off += max(0.8, durs[idxs[k - 1]])
                 lab = f"x{k}"
                 fc.append(f"[{prev}][{k}:v]xfade=transition=fade:duration={XF}:"
-                          f"offset={max(0.1, off - XF):.3f}[{lab}]")
+                          f"offset={max(0.05, off):.3f}[{lab}]")
                 prev = lab
+
             run(["ffmpeg", "-y", *args, "-filter_complex", ";".join(fc),
                  "-map", f"[{prev}]", "-r", str(FPS), *VCODEC, "-pix_fmt", "yuv420p", gpath])
         groups.append(gpath)
