@@ -9,6 +9,8 @@ import {
 } from "@/lib/manga.functions";
 import { fmt, type Segment } from "@/lib/script";
 import { buildVideo, webCodecsSupported } from "@/lib/video";
+import { colabHealth, normalizeColabUrl, renderOnColab } from "@/lib/colab";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -122,9 +124,13 @@ function Index() {
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [canResume, setCanResume] = useState(false);
+  const [colabUrl, setColabUrl] = useState("");
+  const [colabInfo, setColabInfo] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const shotsRef = useRef<Shot[]>([]);
   const cancelRef = useRef(false);
+
 
   shotsRef.current = shots;
 
@@ -380,10 +386,67 @@ function Index() {
   /* Video                                                             */
   /* ---------------------------------------------------------------- */
 
+  async function checkColab() {
+    setError(null);
+    setColabInfo(null);
+    try {
+      const h = await colabHealth(colabUrl);
+      setColabInfo(
+        h.gpu
+          ? `Connected · T4 GPU (NVENC) encoder ready · ${h.lanes} lanes`
+          : "Connected, but this Colab runtime has no GPU — switch the runtime type to T4 for fast encoding.",
+      );
+    } catch (e) {
+      setError(
+        `Could not reach that Colab encoder. Make sure the notebook is still running. (${
+          e instanceof Error ? e.message : String(e)
+        })`,
+      );
+    }
+  }
+
+  /** Encodes on the user's connected Colab T4 GPU — nothing runs on this device. */
+  async function makeVideoOnColab() {
+    setError(null);
+    setSavedTo(null);
+    setVideoUrl(null);
+    setDownloadUrl(null);
+
+    const ready = shotsRef.current
+      .filter((s) => s.url)
+      .sort((a, b) => a.start - b.start)
+      .map((s) => ({ url: s.url as string, start: s.start, end: s.end, prompt: s.prompt }));
+
+    if (ready.length === 0) {
+      setError("No finished panels to build a video from.");
+      return;
+    }
+    if (!colabUrl.trim()) {
+      setError("Paste the https link printed by your Colab notebook first.");
+      return;
+    }
+
+    setPhase("video");
+    setVideoPct(0);
+    try {
+      const res = await renderOnColab(colabUrl, ready, (p, n) => {
+        setVideoPct(p);
+        setNote(n);
+      });
+      setDownloadUrl(res.downloadUrl);
+      setNote("Video ready — download it from Colab");
+      setPhase("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setPhase("error");
+    }
+  }
+
   async function makeVideo() {
     setError(null);
     setSavedTo(null);
     setVideoUrl(null);
+    setDownloadUrl(null);
 
     const ready = shotsRef.current
       .filter((s) => s.url)
@@ -396,10 +459,11 @@ function Index() {
     }
     if (!webCodecsSupported()) {
       setError(
-        "Your browser has no hardware video encoder. Open this page in the latest desktop Chrome, Edge or Opera.",
+        "This browser has no video encoder. Either open the page in the latest desktop Chrome/Edge, or encode on a Colab T4 GPU instead.",
       );
       return;
     }
+
 
     const seconds = ready.reduce((a, s) => a + Math.max(0.8, s.end - s.start), 0);
     const long = seconds > 600; // 10 min+ must stream to disk, not to RAM
@@ -542,13 +606,22 @@ function Index() {
               </button>
             )}
             {doneCount > 0 && !busy && (
-              <button
-                onClick={makeVideo}
-                className="border-4 border-foreground bg-accent px-6 py-3 font-display text-lg font-black uppercase text-accent-foreground"
-              >
-                Build video
-              </button>
+              <>
+                <button
+                  onClick={makeVideoOnColab}
+                  className="border-4 border-foreground bg-accent px-6 py-3 font-display text-lg font-black uppercase text-accent-foreground"
+                >
+                  Encode on Colab GPU
+                </button>
+                <button
+                  onClick={makeVideo}
+                  className="border-4 border-foreground bg-secondary px-6 py-3 font-display text-lg font-black uppercase text-secondary-foreground"
+                >
+                  Build in browser
+                </button>
+              </>
             )}
+
             {busy && (
               <button
                 onClick={() => {
@@ -587,8 +660,58 @@ function Index() {
                 </pre>
               </details>
             )}
-          </section>
-        )}
+        </section>
+
+        <section className="mt-8 border-4 border-foreground bg-card p-5">
+          <h2 className="font-display text-2xl font-black uppercase">Colab GPU encoder</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Encode the final video on a free Google Colab <strong>T4 GPU</strong> instead of this
+            device — nothing is rendered locally, so multi-hour exports never hit your browser's
+            encoder or storage quota.
+          </p>
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm">
+            <li>
+              <a
+                href="/colab/scene-weaver-gpu-encoder.ipynb"
+                download
+                className="font-semibold underline"
+              >
+                Download the notebook
+              </a>{" "}
+              and open it in{" "}
+              <a
+                href="https://colab.research.google.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold underline"
+              >
+                Google Colab
+              </a>{" "}
+              (File → Upload notebook) with your own Google account.
+            </li>
+            <li>
+              Set <span className="font-mono">Runtime → Change runtime type → T4 GPU</span>, then{" "}
+              <span className="font-mono">Run all</span>.
+            </li>
+            <li>Paste the https link it prints below and hit Connect.</li>
+          </ol>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <input
+              value={colabUrl}
+              onChange={(e) => setColabUrl(normalizeColabUrl(e.target.value))}
+              placeholder="https://something.trycloudflare.com"
+              className="min-w-[280px] flex-1 border-2 border-foreground bg-background p-3 font-mono text-sm outline-none focus:ring-4 focus:ring-ring"
+            />
+            <button
+              onClick={checkColab}
+              className="border-4 border-foreground bg-primary px-5 py-2 font-display font-black uppercase text-primary-foreground"
+            >
+              Connect
+            </button>
+          </div>
+          {colabInfo && <p className="mt-3 font-mono text-xs uppercase">{colabInfo}</p>}
+        </section>
+
 
         {error && (
           <p className="mt-4 border-2 border-destructive bg-destructive/10 p-3 text-sm">{error}</p>
