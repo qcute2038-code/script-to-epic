@@ -660,8 +660,58 @@ function Index() {
                 </pre>
               </details>
             )}
-          </section>
-        )}
+        </section>
+
+        <section className="mt-8 border-4 border-foreground bg-card p-5">
+          <h2 className="font-display text-2xl font-black uppercase">Colab GPU encoder</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Encode the final video on a free Google Colab <strong>T4 GPU</strong> instead of this
+            device — nothing is rendered locally, so multi-hour exports never hit your browser's
+            encoder or storage quota.
+          </p>
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm">
+            <li>
+              <a
+                href="/colab/scene-weaver-gpu-encoder.ipynb"
+                download
+                className="font-semibold underline"
+              >
+                Download the notebook
+              </a>{" "}
+              and open it in{" "}
+              <a
+                href="https://colab.research.google.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold underline"
+              >
+                Google Colab
+              </a>{" "}
+              (File → Upload notebook) with your own Google account.
+            </li>
+            <li>
+              Set <span className="font-mono">Runtime → Change runtime type → T4 GPU</span>, then{" "}
+              <span className="font-mono">Run all</span>.
+            </li>
+            <li>Paste the https link it prints below and hit Connect.</li>
+          </ol>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <input
+              value={colabUrl}
+              onChange={(e) => setColabUrl(normalizeColabUrl(e.target.value))}
+              placeholder="https://something.trycloudflare.com"
+              className="min-w-[280px] flex-1 border-2 border-foreground bg-background p-3 font-mono text-sm outline-none focus:ring-4 focus:ring-ring"
+            />
+            <button
+              onClick={checkColab}
+              className="border-4 border-foreground bg-primary px-5 py-2 font-display font-black uppercase text-primary-foreground"
+            >
+              Connect
+            </button>
+          </div>
+          {colabInfo && <p className="mt-3 font-mono text-xs uppercase">{colabInfo}</p>}
+        </section>
+
 
         {error && (
           <p className="mt-4 border-2 border-destructive bg-destructive/10 p-3 text-sm">{error}</p>
