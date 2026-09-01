@@ -386,10 +386,67 @@ function Index() {
   /* Video                                                             */
   /* ---------------------------------------------------------------- */
 
+  async function checkColab() {
+    setError(null);
+    setColabInfo(null);
+    try {
+      const h = await colabHealth(colabUrl);
+      setColabInfo(
+        h.gpu
+          ? `Connected · T4 GPU (NVENC) encoder ready · ${h.lanes} lanes`
+          : "Connected, but this Colab runtime has no GPU — switch the runtime type to T4 for fast encoding.",
+      );
+    } catch (e) {
+      setError(
+        `Could not reach that Colab encoder. Make sure the notebook is still running. (${
+          e instanceof Error ? e.message : String(e)
+        })`,
+      );
+    }
+  }
+
+  /** Encodes on the user's connected Colab T4 GPU — nothing runs on this device. */
+  async function makeVideoOnColab() {
+    setError(null);
+    setSavedTo(null);
+    setVideoUrl(null);
+    setDownloadUrl(null);
+
+    const ready = shotsRef.current
+      .filter((s) => s.url)
+      .sort((a, b) => a.start - b.start)
+      .map((s) => ({ url: s.url as string, start: s.start, end: s.end, prompt: s.prompt }));
+
+    if (ready.length === 0) {
+      setError("No finished panels to build a video from.");
+      return;
+    }
+    if (!colabUrl.trim()) {
+      setError("Paste the https link printed by your Colab notebook first.");
+      return;
+    }
+
+    setPhase("video");
+    setVideoPct(0);
+    try {
+      const res = await renderOnColab(colabUrl, ready, (p, n) => {
+        setVideoPct(p);
+        setNote(n);
+      });
+      setDownloadUrl(res.downloadUrl);
+      setNote("Video ready — download it from Colab");
+      setPhase("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setPhase("error");
+    }
+  }
+
   async function makeVideo() {
     setError(null);
     setSavedTo(null);
     setVideoUrl(null);
+    setDownloadUrl(null);
 
     const ready = shotsRef.current
       .filter((s) => s.url)
@@ -402,10 +459,11 @@ function Index() {
     }
     if (!webCodecsSupported()) {
       setError(
-        "Your browser has no hardware video encoder. Open this page in the latest desktop Chrome, Edge or Opera.",
+        "This browser has no video encoder. Either open the page in the latest desktop Chrome/Edge, or encode on a Colab T4 GPU instead.",
       );
       return;
     }
+
 
     const seconds = ready.reduce((a, s) => a + Math.max(0.8, s.end - s.start), 0);
     const long = seconds > 600; // 10 min+ must stream to disk, not to RAM
