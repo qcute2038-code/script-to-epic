@@ -124,9 +124,13 @@ function Index() {
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [canResume, setCanResume] = useState(false);
+  const [colabUrl, setColabUrl] = useState("");
+  const [colabInfo, setColabInfo] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const shotsRef = useRef<Shot[]>([]);
   const cancelRef = useRef(false);
+
 
   shotsRef.current = shots;
 
